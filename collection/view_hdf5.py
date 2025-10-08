@@ -30,6 +30,16 @@ class HDF5Viewer:
         self.is_playing = False
         self.play_thread = None
         
+        # Performance optimization cache
+        self.frame_cache = {}  # Cache processed frames to avoid repeated conversion
+        self.last_processed_frame_idx = -1
+        self.cached_photo = None
+        
+        # IMU plot state management
+        self.plots_have_data = False  # True when plots contain actual sensor data
+        self.cursor_lines = {}  # Store references to cursor lines for cleanup
+        self.plot_elements = {}  # Store plot line objects for potential updates
+        
         # Real-time recording
         self.is_recording = False
         self.data_collector = None
@@ -435,8 +445,8 @@ class HDF5Viewer:
             # Update video display
             self.display_current_frame()
             
-            # Update IMU plots
-            self.update_imu_plots()
+            # Plot the IMU data on all charts
+            self.plot_imu_data()
             
             self.status_label.config(text=f"Loaded: {len(self.imu_timestamps)} IMU samples, {len(self.video_frames)} video frames")
             
@@ -569,8 +579,8 @@ class HDF5Viewer:
             # Update video display
             self.display_current_frame()
             
-            # Update IMU plots
-            self.update_imu_plots()
+            # Plot the IMU data on all charts
+            self.plot_imu_data()
             
             self.status_label.config(text=f"Loaded: {len(self.imu_timestamps)} IMU samples, {len(self.video_frames)} video frames")
             
@@ -579,11 +589,30 @@ class HDF5Viewer:
             self.status_label.config(text="Error loading file")
             
     def display_current_frame(self):
-        """Display the current video frame"""
+        """Display the current video frame with caching optimization"""
         if self.video_frames is None:
             return
+        
+        # Check if we can use cached frame
+        if (self.current_frame_idx == self.last_processed_frame_idx and 
+            self.cached_photo is not None):
+            # Use cached photo
+            self.video_label.config(image=self.cached_photo, text="")
+            self.video_label.image = self.cached_photo
+            self.timeline_var.set(self.current_frame_idx)
+            return
             
-        # Get current frame
+        # Check frame cache first
+        if self.current_frame_idx in self.frame_cache:
+            photo = self.frame_cache[self.current_frame_idx]
+            self.video_label.config(image=photo, text="")
+            self.video_label.image = photo
+            self.cached_photo = photo
+            self.last_processed_frame_idx = self.current_frame_idx
+            self.timeline_var.set(self.current_frame_idx)
+            return
+        
+        # Process new frame
         frame = self.video_frames[self.current_frame_idx]
         
         # Convert BGR to RGB
@@ -603,6 +632,16 @@ class HDF5Viewer:
         pil_image = Image.fromarray(frame_rgb)
         photo = ImageTk.PhotoImage(pil_image)
         
+        # Cache the processed frame (limit cache size to prevent memory issues)
+        if len(self.frame_cache) > 100:  # Keep only last 100 frames cached
+            # Remove oldest entry
+            oldest_key = min(self.frame_cache.keys())
+            del self.frame_cache[oldest_key]
+        
+        self.frame_cache[self.current_frame_idx] = photo
+        self.cached_photo = photo
+        self.last_processed_frame_idx = self.current_frame_idx
+        
         # Update label
         self.video_label.config(image=photo, text="")
         self.video_label.image = photo  # Keep a reference
@@ -617,51 +656,168 @@ class HDF5Viewer:
             current_time = self.video_timestamps[self.current_frame_idx] if self.video_timestamps is not None else 0
             self.frame_info_label.config(text=f"Frame: {self.current_frame_idx + 1}/{total_frames} | Time: {current_time:.2f}s")
             
-    def update_imu_plots(self):
-        """Update all IMU plots with loaded data"""
+    def plot_imu_data(self):
+        """Plot all IMU sensor data on the charts (full redraw)"""
         if self.imu_data is None or self.imu_timestamps is None:
             return
             
-        # Update individual sensor group plots
-        self.update_sensor_group_plot("accelerometer", [0, 1, 2])
-        self.update_sensor_group_plot("gyroscope", [3, 4, 5])
-        self.update_sensor_group_plot("magnetometer", [6, 7, 8])
+        # Plot individual sensor groups
+        self.plot_sensor_group("accelerometer", [0, 1, 2])
+        self.plot_sensor_group("gyroscope", [3, 4, 5])  
+        self.plot_sensor_group("magnetometer", [6, 7, 8])
+        self.plot_all_sensors()
         
-        # Update all sensors plot
-        self.update_all_sensors_plot()
+        # Add initial cursor at current frame
+        self.add_time_cursor()
         
-    def update_sensor_group_plot(self, group_name, data_indices):
-        """Update a specific sensor group plot"""
-        fig = getattr(self, f"{group_name}_fig")
+        self.plots_have_data = True
+        
+    def add_time_cursor(self):
+        """Add time cursor to all plots at current frame position"""
+        if not self.plots_have_data or self.video_timestamps is None:
+            return
+            
+        if self.current_frame_idx >= len(self.video_timestamps):
+            return
+            
+        current_time = self.video_timestamps[self.current_frame_idx]
+        
+        # Add cursor to individual sensor plots
+        for group_name in ["accelerometer", "gyroscope", "magnetometer"]:
+            ax = getattr(self, f"{group_name}_ax", None)
+            if ax is not None:
+                cursor_line = ax.axvline(x=current_time, color='red', 
+                                       linestyle='--', alpha=0.7, linewidth=2)
+                self.cursor_lines[group_name] = cursor_line
+                getattr(self, f"{group_name}_canvas").draw_idle()
+        
+        # Add cursor to all sensors plot
+        if hasattr(self, 'all_axes'):
+            for i, ax in enumerate(self.all_axes):
+                cursor_line = ax.axvline(x=current_time, color='red', 
+                                       linestyle='--', alpha=0.7, linewidth=2)
+                self.cursor_lines[f"all_sensors_{i}"] = cursor_line
+            self.all_canvas.draw_idle()
+    
+    def update_time_cursor(self, target_time=None):
+        """Update cursor position on all plots (fast operation)"""
+        if not self.plots_have_data:
+            return
+            
+        # Determine target time
+        if target_time is not None:
+            current_time = target_time
+        elif (self.video_timestamps is not None and 
+              self.current_frame_idx < len(self.video_timestamps)):
+            current_time = self.video_timestamps[self.current_frame_idx]
+        else:
+            return
+            
+        # Update cursor position on individual sensor plots
+        for group_name in ["accelerometer", "gyroscope", "magnetometer"]:
+            if group_name in self.cursor_lines:
+                try:
+                    # Remove old cursor
+                    self.cursor_lines[group_name].remove()
+                except:
+                    pass
+                    
+                # Add new cursor at updated position
+                ax = getattr(self, f"{group_name}_ax", None)
+                if ax is not None:
+                    self.cursor_lines[group_name] = ax.axvline(
+                        x=current_time, color='red', linestyle='--', 
+                        alpha=0.7, linewidth=2)
+                    getattr(self, f"{group_name}_canvas").draw_idle()
+        
+        # Update cursor on all sensors plot
+        if hasattr(self, 'all_axes'):
+            for i, ax in enumerate(self.all_axes):
+                cursor_key = f"all_sensors_{i}"
+                if cursor_key in self.cursor_lines:
+                    try:
+                        self.cursor_lines[cursor_key].remove()
+                    except:
+                        pass
+                    self.cursor_lines[cursor_key] = ax.axvline(
+                        x=current_time, color='red', linestyle='--', 
+                        alpha=0.7, linewidth=2)
+            self.all_canvas.draw_idle()
+    
+    def clear_time_cursors(self):
+        """Remove all time cursors from plots"""
+        for cursor_line in self.cursor_lines.values():
+            try:
+                cursor_line.remove()
+            except:
+                pass
+        self.cursor_lines.clear()
+        
+    def clear_all_plots(self):
+        """Clear all plot data and reset to empty state"""
+        # Clear individual sensor plots
+        for group_name in ["accelerometer", "gyroscope", "magnetometer"]:
+            ax = getattr(self, f"{group_name}_ax", None)
+            if ax is not None:
+                ax.clear()
+                ax.set_title(f"{group_name.title()} Data", fontsize=14, fontweight='bold')
+                ax.set_xlabel("Time (seconds)", fontsize=12)
+                ax.set_ylabel(f"{group_name.title()}", fontsize=12)
+                ax.grid(True, alpha=0.3)
+                getattr(self, f"{group_name}_canvas").draw()
+        
+        # Clear all sensors plot
+        if hasattr(self, 'all_axes'):
+            titles = ["Accelerometer (m/s²)", "Gyroscope (rad/s)", "Magnetometer (µT)"]
+            for ax, title in zip(self.all_axes, titles):
+                ax.clear()
+                ax.set_title(title, fontsize=12, fontweight='bold')
+                ax.set_xlabel("Time (seconds)", fontsize=10)
+                ax.set_ylabel(title.split()[0], fontsize=10)
+                ax.grid(True, alpha=0.3)
+            self.all_fig.tight_layout()
+            self.all_canvas.draw()
+        
+        # Reset state
+        self.clear_time_cursors()
+        self.plot_elements.clear()
+        self.plots_have_data = False
+    
+
+        
+    def plot_sensor_group(self, group_name, data_indices):
+        """Plot data for a specific sensor group (accelerometer, gyroscope, magnetometer)"""
         ax = getattr(self, f"{group_name}_ax")
         canvas = getattr(self, f"{group_name}_canvas")
         labels = getattr(self, f"{group_name}_labels")
         colors = getattr(self, f"{group_name}_colors")
+        units = getattr(self, f"{group_name}_units")
         
-        # Clear previous plots
+        # Clear previous plot
         ax.clear()
         
-        # Plot each sensor
-        for i, (idx, label, color) in enumerate(zip(data_indices, labels, colors)):
-            ax.plot(self.imu_timestamps, self.imu_data[:, idx], 
-                   color=color, label=label, linewidth=1.5)
+        # Plot each sensor line
+        plot_lines = []
+        for idx, label, color in zip(data_indices, labels, colors):
+            line, = ax.plot(self.imu_timestamps, self.imu_data[:, idx], 
+                           color=color, label=label, linewidth=1.5)
+            plot_lines.append(line)
         
-        # Configure plot
+        # Store plot elements for potential future updates
+        self.plot_elements[group_name] = plot_lines
+        
+        # Configure plot appearance
         ax.set_title(f"{group_name.title()} Data", fontsize=14, fontweight='bold')
         ax.set_xlabel("Time (seconds)", fontsize=12)
-        ax.set_ylabel(f"{group_name.title()} ({getattr(self, f'{group_name}_units')})", fontsize=12)
+        ax.set_ylabel(f"{group_name.title()} ({units})", fontsize=12)
         ax.grid(True, alpha=0.3)
         ax.legend()
         
-        # Add current time indicator
-        if self.video_timestamps is not None and self.current_frame_idx < len(self.video_timestamps):
-            current_time = self.video_timestamps[self.current_frame_idx]
-            ax.axvline(x=current_time, color='red', linestyle='--', alpha=0.7, linewidth=2)
-        
+        # Redraw canvas
         canvas.draw()
         
-    def update_all_sensors_plot(self):
-        """Update the all sensors plot"""
+    def plot_all_sensors(self):
+        """Plot all 9 sensors in the combined view"""
         if not hasattr(self, 'all_fig'):
             return
             
@@ -669,26 +825,33 @@ class HDF5Viewer:
         for ax in self.all_axes:
             ax.clear()
         
-        # Plot each sensor group
+        # Plot configuration
         data_indices = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
         titles = ["Accelerometer (m/s²)", "Gyroscope (rad/s)", "Magnetometer (µT)"]
         
-        for ax, indices, title, labels in zip(self.all_axes, data_indices, titles, self.all_labels_groups):
-            for i, (idx, label, color) in enumerate(zip(indices, labels, self.all_colors)):
-                ax.plot(self.imu_timestamps, self.imu_data[:, idx], 
-                       color=color, label=label, linewidth=1.5)
+        all_plot_lines = []
+        for ax_idx, (ax, indices, title, labels) in enumerate(zip(
+            self.all_axes, data_indices, titles, self.all_labels_groups)):
             
+            subplot_lines = []
+            for idx, label, color in zip(indices, labels, self.all_colors):
+                line, = ax.plot(self.imu_timestamps, self.imu_data[:, idx], 
+                               color=color, label=label, linewidth=1.5)
+                subplot_lines.append(line)
+            
+            all_plot_lines.append(subplot_lines)
+            
+            # Configure subplot
             ax.set_title(title, fontsize=12, fontweight='bold')
             ax.set_xlabel("Time (seconds)", fontsize=10)
             ax.set_ylabel(title.split()[0], fontsize=10)
             ax.grid(True, alpha=0.3)
             ax.legend()
-            
-            # Add current time indicator
-            if self.video_timestamps is not None and self.current_frame_idx < len(self.video_timestamps):
-                current_time = self.video_timestamps[self.current_frame_idx]
-                ax.axvline(x=current_time, color='red', linestyle='--', alpha=0.7, linewidth=2)
         
+        # Store plot elements
+        self.plot_elements['all_sensors'] = all_plot_lines
+        
+        # Apply layout and redraw
         self.all_fig.tight_layout()
         self.all_canvas.draw()
         
@@ -698,7 +861,7 @@ class HDF5Viewer:
             self.current_frame_idx = int(float(value))
             self.display_current_frame()
             self.update_frame_info()
-            self.update_imu_plots()
+            self.update_time_cursor()  # Update cursor position only
             
     def first_frame(self):
         """Go to first frame"""
@@ -706,7 +869,7 @@ class HDF5Viewer:
             self.current_frame_idx = 0
             self.display_current_frame()
             self.update_frame_info()
-            self.update_imu_plots()
+            self.update_time_cursor()
             
     def last_frame(self):
         """Go to last frame"""
@@ -714,7 +877,7 @@ class HDF5Viewer:
             self.current_frame_idx = len(self.video_frames) - 1
             self.display_current_frame()
             self.update_frame_info()
-            self.update_imu_plots()
+            self.update_time_cursor()
             
     def prev_frame(self):
         """Go to previous frame"""
@@ -722,7 +885,7 @@ class HDF5Viewer:
             self.current_frame_idx -= 1
             self.display_current_frame()
             self.update_frame_info()
-            self.update_imu_plots()
+            self.update_time_cursor()
             
     def next_frame(self):
         """Go to next frame"""
@@ -730,7 +893,7 @@ class HDF5Viewer:
             self.current_frame_idx += 1
             self.display_current_frame()
             self.update_frame_info()
-            self.update_imu_plots()
+            self.update_time_cursor()
             
     # def toggle_play(self):
     #     """Toggle playback on/off"""
@@ -853,14 +1016,17 @@ class HDF5Viewer:
                 idx = len(self.video_frames) - 1
 
             # Only trigger GUI updates if frame index changed or it’s time for a tick redraw
+            # Always update frame index for consistent state
+            self.current_frame_idx = idx
+            
             if idx != last_idx:
-                self.current_frame_idx = idx
                 last_idx = idx
                 self.root.after(0, self.display_current_frame)
                 self.root.after(0, self.update_frame_info)
 
-            # Always move the IMU time cursor at the display rate for smoothness
-            self.root.after(0, self.update_imu_plots)
+            # Always update IMU cursor for smooth movement using actual media time
+            # Use default argument to capture t_media value at this moment
+            self.root.after(0, lambda t=t_media: self.update_time_cursor(t))
 
             # Compute when to wake up next:
             #   - regular UI tick (60 Hz), and
