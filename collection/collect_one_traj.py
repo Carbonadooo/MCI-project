@@ -9,7 +9,7 @@ import os
 
 class DataCollector:
     def __init__(self, serial_port="/dev/ttyACM0", baud_rate=115200, 
-                 webcam_port=0, imu_freq=200, camera_freq=30, output_hdf5="./data/output_data.hdf5"):
+                 webcam_port=0, imu_freq=200, camera_freq=30, output_hdf5="./data/output_data.hdf5", duration=15):
         # Configuration
         self.serial_port = serial_port
         self.baud_rate = baud_rate
@@ -21,6 +21,7 @@ class DataCollector:
         self.tmp_output_csv = "./tmp_imu_data.csv"
         self.tmp_output_mp4 = "./tmp_video_data.mp4"
         self.output_hdf5 = output_hdf5
+        self.duration = duration
         
         # Camera settings
         self.camera_width = 640
@@ -253,7 +254,7 @@ class DataCollector:
             os.remove(self.tmp_output_mp4)
             print(f"Deleted: {self.tmp_output_mp4}")
     
-    def start_recording(self, duration=15):
+    def start_recording(self, duration=None):
         """Start recording for specified duration"""
         print(f"Starting dual recording (IMU + Video) for {duration} seconds...")
         print("Recording will automatically stop after the specified duration")
@@ -282,14 +283,14 @@ class DataCollector:
                 elapsed_time = current_time - self.start_time
                 
                 # Check if duration has passed
-                if elapsed_time >= duration:
-                    print(f"\n{duration} seconds elapsed. Stopping recording...")
+                if elapsed_time >= self.duration:
+                    print(f"\n{self.duration} seconds elapsed. Stopping recording...")
                     self.recording = False
                     break
                 
                 # Show progress every 1 second
                 if int(elapsed_time) % 1 == 0 and elapsed_time > 0:
-                    remaining = duration - elapsed_time
+                    remaining = self.duration - elapsed_time
                     print(f"Recording... {elapsed_time:.1f}s elapsed, {remaining:.1f}s remaining")
                 
                 time.sleep(0.1)
@@ -336,7 +337,7 @@ def main():
     )
     
     # Start recording for 15 seconds
-    success = collector.start_recording(duration=15)
+    success = collector.start_recording()
     
     if success:
         print("Data collection completed successfully!")

@@ -12,7 +12,7 @@ import hdf5_2_mp4
 def main():
     # Configuration
     folder_name = "test_data"
-    task_name = "wipe_table"
+    task_name = "pick_and_place"
     path = Path("data") / folder_name / task_name
     
     # Create output directory
@@ -35,7 +35,8 @@ def main():
             webcam_port=0,
             imu_freq=200,  # 200 Hz
             camera_freq=30,  # 30 FPS
-            output_hdf5=str(output_hdf5)
+            output_hdf5=str(output_hdf5),
+            duration=10
         )
         
         # Start recording for 15 seconds
