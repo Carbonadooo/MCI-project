@@ -4,7 +4,7 @@ import time
 import matplotlib.pyplot as plt
 from collections import deque
 
-SERIAL_PORT = "COM3"       # Windows: COM口，Linux/Mac: /dev/ttyUSB0
+SERIAL_PORT = "/dev/ttyACM0"       # Windows: COM口，Linux/Mac: /dev/ttyUSB0
 BAUD_RATE = 115200
 OUTPUT_CSV = "imu_data.csv"
 REALTIME_PLOT = True       # 是否显示实时图
