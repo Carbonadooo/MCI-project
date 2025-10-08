@@ -1,3 +1,6 @@
 imu_data.csv
 **/*.csv
 *.csv
+data
+*.mp4
+*.hdf5
