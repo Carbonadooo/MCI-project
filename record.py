@@ -12,7 +12,7 @@ import hdf5_2_mp4
 def main():
     # Configuration
     folder_name = "test_data"
-    task_name = "pick_and_place"
+    task_name = "test_mac"
     path = Path("data") / folder_name / task_name
     
     # Create output directory
@@ -30,7 +30,7 @@ def main():
     try:
         # Create data collector
         collector = DataCollector(
-            serial_port="/dev/ttyACM0",
+            serial_port="/dev/tty.usbmodem1101",
             baud_rate=115200,
             webcam_port=0,
             imu_freq=200,  # 200 Hz
