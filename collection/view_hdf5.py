@@ -88,10 +88,10 @@ class HDF5Viewer:
         center_controls = ttk.Frame(top_frame)
         center_controls.pack(side=tk.LEFT, padx=20)
         
-        self.record_button = ttk.Button(center_controls, text="Start Recording", command=self.toggle_recording)
-        self.record_button.pack(side=tk.LEFT, padx=(0, 10))
+        # self.record_button = ttk.Button(center_controls, text="Start Recording", command=self.toggle_recording)
+        # self.record_button.pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Button(center_controls, text="Settings", command=self.open_settings).pack(side=tk.LEFT, padx=(0, 10))
+        # ttk.Button(center_controls, text="Settings", command=self.open_settings).pack(side=tk.LEFT, padx=(0, 10))
         
         # Right side - Video controls
         video_control_frame = ttk.Frame(top_frame)
@@ -255,7 +255,7 @@ class HDF5Viewer:
             
             # Start recording in a separate thread
             self.is_recording = True
-            self.record_button.config(text="Stop Recording")
+            # self.record_button.config(text="Stop Recording")
             self.recording_thread = threading.Thread(target=self.realtime_recording_loop)
             self.recording_thread.daemon = True
             self.recording_thread.start()
@@ -268,12 +268,12 @@ class HDF5Viewer:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start recording: {e}")
             self.is_recording = False
-            self.record_button.config(text="Start Recording")
+            # self.record_button.config(text="Start Recording")
     
     def stop_realtime_recording(self):
         """Stop real-time recording"""
         self.is_recording = False
-        self.record_button.config(text="Start Recording")
+        # self.record_button.config(text="Start Recording")
         
         if self.data_collector:
             self.data_collector.recording = False
@@ -456,6 +456,12 @@ class HDF5Viewer:
         
     def create_imu_tabs(self):
         """Create tabs for different IMU sensor groups"""
+
+        # All sensors tab
+        all_frame = ttk.Frame(self.notebook)
+        self.notebook.add(all_frame, text="All Sensors")
+        self.create_all_sensors_plot(all_frame)
+        
         # Accelerometer tab
         accel_frame = ttk.Frame(self.notebook)
         self.notebook.add(accel_frame, text="Accelerometer")
@@ -474,10 +480,7 @@ class HDF5Viewer:
         self.create_imu_plot(mag_frame, "Magnetometer", ["mx", "my", "mz"], 
                            ["red", "green", "blue"], "µT")
         
-        # All sensors tab
-        all_frame = ttk.Frame(self.notebook)
-        self.notebook.add(all_frame, text="All Sensors")
-        self.create_all_sensors_plot(all_frame)
+        
         
     def create_imu_plot(self, parent, title, labels, colors, units):
         """Create IMU plot for a specific sensor group"""
