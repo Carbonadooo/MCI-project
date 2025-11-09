@@ -1,18 +1,49 @@
 import os
 import sys
 import time
+import argparse
 from pathlib import Path
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'collection'))
+# sys.path.append(os.path.join(os.path.dirname(__file__), 'collection'))
 
-from collect_one_traj import DataCollector
-import hdf5_to_csv
-import hdf5_2_mp4
+from collection.collect_one_traj import DataCollector
+import collection.hdf5_to_csv as hdf5_to_csv
+import collection.hdf5_2_mp4 as hdf5_2_mp4
 
 def main():
-    # Configuration
-    folder_name = "test_data"
-    task_name = "pick_and_place"
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description='Record IMU and video data for a specific task',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='Example: python record.py --folder_name test_data --task_name pick_and_place --webcam_port 2'
+    )
+    
+    parser.add_argument(
+        '--folder_name',
+        type=str,
+        required=True,
+        help='Folder name to store the data (e.g., test_data, nov2_set)'
+    )
+    
+    parser.add_argument(
+        '--task_name',
+        type=str,
+        required=True,
+        help='Task name for the recording (e.g., pick_and_place, wipe_table)'
+    )
+    
+    parser.add_argument(
+        '--webcam_port',
+        type=int,
+        default=0,
+        help='Webcam port number (default: 0). Use check_camera_ports.py to find available ports.'
+    )
+    
+    args = parser.parse_args()
+    
+    # Configuration from arguments
+    folder_name = args.folder_name
+    task_name = args.task_name
     path = Path("data") / folder_name / task_name
     
     # Create output directory
@@ -24,6 +55,7 @@ def main():
     output_hdf5 = output_dir / f"{task_name}_{timestamp}.hdf5"
     
     print(f"Starting data collection for task: {task_name}")
+    print(f"Webcam port: {args.webcam_port}")
     print(f"Output directory: {output_dir}")
     print(f"Output file: {output_hdf5}")
     
@@ -32,11 +64,11 @@ def main():
         collector = DataCollector(
             serial_port="/dev/ttyACM0",
             baud_rate=115200,
-            webcam_port=0,
+            webcam_port=args.webcam_port,
             imu_freq=200,  # 200 Hz
             camera_freq=30,  # 30 FPS
             output_hdf5=str(output_hdf5),
-            duration=10
+            duration=7
         )
         
         # Start recording for 15 seconds
