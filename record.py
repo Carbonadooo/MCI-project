@@ -62,7 +62,7 @@ def main():
     try:
         # Create data collector
         collector = DataCollector(
-            serial_port="/dev/ttyACM0",
+            serial_port="/dev/tty.usbmodem1101",
             baud_rate=115200,
             webcam_port=args.webcam_port,
             imu_freq=200,  # 200 Hz
