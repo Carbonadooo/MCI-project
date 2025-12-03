@@ -4,5 +4,7 @@ imu_data.csv
 data
 *.mp4
 *.hdf5
-__pycache__
+__pycache__/
+**/__pycache__/
+*.pyc
 **/*.pyc
