@@ -10,7 +10,7 @@ import io
 
 # --- CONFIGURATION ---
 # TARGET_FILE = '/home/chuye/Documents/MCI-project/data/nov2_set/punch_forward/punch_forward_20251108_204358.hdf5'
-TARGET_FILE = '/home/chuye/Documents/MCI-project/data/stay_still/s_20251202_175917.hdf5'
+TARGET_FILE = '/home/chuye/Documents/MCI-project/data/nov2_set/right/right_20251202_205538.hdf5'
 OUTPUT_DIR = '/home/chuye/Documents/MCI-project/data/pose_animations'
 FPS = 30  # Frames per second for the GIF
 ARROW_LENGTH = 0.5  # Length of orientation arrows
