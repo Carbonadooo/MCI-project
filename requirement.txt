@@ -1,2 +1,20 @@
+# Core data processing and scientific computing
+numpy>=1.21.0
+pandas>=1.3.0
+h5py>=3.1.0
+
+# Computer vision and image processing
+opencv-python>=4.5.0
+Pillow>=8.0.0
+
+# Serial communication
 pyserial>=3.5
-matplotlib>=3.7
+
+# Plotting and visualization
+matplotlib>=3.7.0
+
+# GUI framework (tkinter is included with Python by default, but adding for completeness)
+# tkinter (built-in with Python)
+
+# Note: The following are Python standard library modules and don't need to be installed:
+# os, sys, time, threading, csv, pathlib, datetime, collections
