@@ -13,7 +13,7 @@ from imu_ssl.datasets.imu_augmentation import (
     Compose, Jitter, Scaling, RandomCrop, TimeWarp, ChannelDropout
 )
 from imu_ssl.models.tcn_encoder import TCNEncoder
-from imu_ssl.models.ts_tcc_model import TSTCC
+from imu_ssl.models.SimCLR_model import SimCLR
 
 
 # --------------------------------------------------
@@ -21,11 +21,11 @@ from imu_ssl.models.ts_tcc_model import TSTCC
 # --------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
-METADATA = DATA_DIR / "metadata.json"
+METADATA = DATA_DIR / "metadata_train.json"
 
 BATCH_SIZE = 32
 SEQ_LEN = 1440
-EPOCHS = 30
+EPOCHS = 20
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(DEVICE)
@@ -40,7 +40,7 @@ def get_augmentation():
     return Compose([
         Jitter(0.01),
         Scaling(0.05),
-        # RandomCrop(0.75),
+        RandomCrop(0.9),
         TimeWarp(0.2),
         # ChannelDropout(0.05),
     ])
@@ -51,24 +51,25 @@ def get_augmentation():
 # --------------------------------------------------
 def main():
 
+    # training files
     print("Loading metadata:", METADATA)
     index = DataIndex(METADATA)
-
-    # split
-    train_files, test_files = index.train_test_split(ratio=0.8)
-    print(f"Train: {len(train_files)}, Test: {len(test_files)}")
+    train_files = index.all_file_list()
+    print("Train samples:", len(train_files))
 
     # loader
+    augment = get_augmentation()
     train_loader = build_dataloader(
         train_files,
         batch_size=BATCH_SIZE,
         shuffle=True,
         target_seq_len=SEQ_LEN,
+        augment=augment,
     )
 
     # model
     encoder = TCNEncoder(input_ch=9)
-    model = TSTCC(encoder).to(DEVICE)
+    model = SimCLR(encoder).to(DEVICE)
     print(model)
 
     optimizer = optim.Adam(model.parameters(), lr=LR)
@@ -77,8 +78,6 @@ def main():
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=EPOCHS, eta_min=1e-5
     )
-
-    augment = get_augmentation()
 
     best_loss = float("inf")
 
@@ -94,56 +93,31 @@ def main():
 
         model.train()
         epoch_loss_sum = 0.0
-        epoch_ctx_sum = 0.0
-        epoch_tmp_sum = 0.0
         epoch_steps = 0
 
-        for batch_idx, imu_batch in enumerate(train_loader):      # imu_batch: (B, T, 9)
-            imu_batch = imu_batch.numpy()   # convert to np for augment
+        for x1, x2 in train_loader:
+            x1 = x1.to(DEVICE)
+            x2 = x2.to(DEVICE)
 
-            x1_list, x2_list = [], []
-            for seq in imu_batch:
-                x1_list.append(torch.tensor(augment(seq), dtype=torch.float32))
-                x2_list.append(torch.tensor(augment(seq), dtype=torch.float32))
-
-            x1 = torch.stack(x1_list).to(DEVICE)
-            x2 = torch.stack(x2_list).to(DEVICE)
+            loss = model(x1, x2)
 
             optimizer.zero_grad()
-            loss, stats = model(x1, x2)
             loss.backward()
-
-            # gradient clipping (very helpful for stability)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
-
             optimizer.step()
 
             epoch_loss_sum += loss.item()
-            epoch_ctx_sum += stats["context"]
-            epoch_tmp_sum += stats["temporal"]
             epoch_steps += 1
-            
-            # Log progress every 5 batches
-            if (batch_idx + 1) % 5 == 0:
-                current_avg_loss = epoch_loss_sum / epoch_steps
-                print(f"  Batch {batch_idx + 1}: avg_loss={current_avg_loss:.4f}")
 
         avg_loss = epoch_loss_sum / epoch_steps
-        avg_ctx = epoch_ctx_sum / epoch_steps
-        avg_tmp = epoch_tmp_sum / epoch_steps
         epoch_duration = time.time() - epoch_start_time
         
         print(f"Epoch {epoch}: avg_loss={avg_loss:.4f}  "
-              f"(ctx={avg_ctx:.4f}, tmp={avg_tmp:.4f})  "
               f"Time: {epoch_duration:.2f}s")
 
-        # update scheduler
         scheduler.step()
 
-        # save latest checkpoint (overwrite)
         torch.save(model.state_dict(), OUT_DIR / "latest.pt")
 
-        # save best checkpoint
         if avg_loss < best_loss:
             best_loss = avg_loss
             torch.save(model.state_dict(), OUT_DIR / "best.pt")

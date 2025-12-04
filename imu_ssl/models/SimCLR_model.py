@@ -12,7 +12,7 @@ class SimCLR(nn.Module):
         # SimCLR projection head
         self.projector = ProjectionHead(D, D, proj_dim)
 
-    def forward(self, x1, x2, lambda_temp=4.0):
+    def forward(self, x1, x2):
         # x1, x2: (B, T, C)
         h1 = self.encoder(x1)  # (B, T, D)
         h2 = self.encoder(x2)
