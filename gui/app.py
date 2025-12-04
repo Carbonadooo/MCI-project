@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSplitter, QInputDialog, QMessageBox, QListWidget,
                              QFileDialog, QGroupBox, QLineEdit)
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize, QDir
+from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
@@ -19,6 +20,12 @@ from PyQt5.QtMultimediaWidgets import QVideoWidget
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+
+# SIZE CONSTANTS
+MAIN_WINDOW_WIDTH = 2200
+MAIN_WINDOW_HEIGHT = 800
+VIDEO_IMU_SPLIT_SIZE = [500, 400]
+QTREE_RIGHT_SPLIT_SIZE = [200, 900]
 
 # --- 1. DUMMY BACKEND ---
 class BackendSystem:
@@ -93,6 +100,9 @@ class IMUPlotWidget(QWidget):
 
     def plot_static_data(self, t, data):
         """Plots full dataset for Display Mode."""
+        t = t - t[0]
+        self.t_relative = t
+
         # data shape: (9, N) -> 0-2 Accel, 3-5 Gyro, 6-8 Mag
         for i in range(3): # For each subplot
             for j in range(3): # For X, Y, Z
@@ -100,17 +110,20 @@ class IMUPlotWidget(QWidget):
             self.axes[i].relim()
             self.axes[i].autoscale_view()
         
-        # Add vertical cursor
-        if self.cursor_line:
-            self.cursor_line.remove()
-        self.cursor_line = self.ax1.axvline(x=0, color='k', linestyle='--')
+        # remove old cursor lines
+        for l in getattr(self, "cursor_lines", []):
+            l.remove()
+
+        self.cursor_lines = []
+        for ax in self.axes:
+            line = ax.axvline(x=0, color='k', linestyle='--')
+            self.cursor_lines.append(line)
         self.canvas.draw()
 
     def update_cursor(self, timestamp):
-        """Updates the vertical line position."""
-        if self.cursor_line:
-            self.cursor_line.set_xdata([timestamp, timestamp])
-            self.canvas.draw_idle()
+        for line in self.cursor_lines:
+            line.set_xdata([timestamp])
+        self.canvas.draw_idle()
 
     def update_realtime_data(self, t, data):
         """Updates plot for Recording Mode."""
@@ -142,11 +155,18 @@ class DisplayModeTab(QWidget):
         # -- Left: File Explorer --
         self.file_model = QFileSystemModel()
         self.file_model.setRootPath(QDir.rootPath())
+        self.file_model.setNameFilters(["*.hdf5"])
+        self.file_model.setNameFilterDisables(False)
         
         self.tree = QTreeView()
         self.tree.setModel(self.file_model)
         self.tree.setRootIndex(self.file_model.index(os.getcwd())) # Start in current dir
         self.tree.setColumnWidth(0, 200)
+        # Hide extra columns
+        self.tree.setColumnHidden(1, True)  # size
+        self.tree.setColumnHidden(2, True)  # type
+        self.tree.setColumnHidden(3, True)  # last modified
+
         self.tree.doubleClicked.connect(self.load_file)
         
         splitter.addWidget(self.tree)
@@ -161,13 +181,21 @@ class DisplayModeTab(QWidget):
         # Video Player
         video_container = QWidget()
         video_layout = QVBoxLayout(video_container)
-        self.video_widget = QVideoWidget()
-        self.media_player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
-        self.media_player.setVideoOutput(self.video_widget)
-        self.media_player.positionChanged.connect(self.on_position_changed)
-        self.media_player.durationChanged.connect(self.on_duration_changed)
-        video_layout.addWidget(self.video_widget)
         
+        # 视频用 QLabel 显示 pixmap 帧
+        self.video_label = QLabel("No video loaded")
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setStyleSheet("background-color:black;")
+        self.video_label.setMinimumSize(320, 240)
+        video_layout.addWidget(self.video_label)
+
+        # 播放控制变量
+        self.video_frames = None
+        self.video_timestamps = None
+        self.current_frame = 0
+        self.play_timer = QTimer()
+        self.play_timer.timeout.connect(self.next_frame)
+
         # Controls
         controls_layout = QHBoxLayout()
         self.btn_play = QPushButton()
@@ -188,35 +216,80 @@ class DisplayModeTab(QWidget):
         content_splitter.addWidget(self.plot_widget)
         
         # Adjust initial sizes
-        content_splitter.setSizes([400, 400])
+        content_splitter.setSizes(VIDEO_IMU_SPLIT_SIZE)
         
         right_layout.addWidget(content_splitter)
         splitter.addWidget(right_widget)
-        splitter.setSizes([200, 800])
-
+        splitter.setSizes(QTREE_RIGHT_SPLIT_SIZE)
         # Dummy data state
         self.duration = 10 # seconds
 
     def load_file(self, index):
         path = self.file_model.filePath(index)
-        if path.endswith(('.mp4', '.avi', '.mov')):
-            print(f"Loading video: {path}")
-            self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(path)))
-            self.btn_play.setEnabled(True)
-            
-            # Generate fake synchronized IMU data for this file
-            t, data = backend.generate_dummy_imu_data(self.duration)
-            self.plot_widget.plot_static_data(t, data)
-        else:
-            print("Selected file is not a supported video format.")
+        if not path.endswith(".hdf5"):
+            print("Not an HDF5 file.")
+            return
+        
+        import h5py
+
+        print(f"[INFO] Loading HDF5: {path}")
+
+        with h5py.File(path, "r") as hf:
+            self.imu_timestamps = hf["imu/timestamps"][:]
+            self.imu_data = hf["imu/data"][:]      # shape N x 9
+            self.imu_data = self.imu_data.T
+            self.video_timestamps = hf["video/timestamps"][:]
+            self.video_frames = hf["video/frames"][:]  # uint8 array (N, H, W, 3)
+
+        print(f"[INFO] Loaded {self.video_frames.shape[0]} video frames")
+        print(f"[INFO] Loaded {self.imu_data.shape[1]} IMU samples")
+
+        self.plot_widget.plot_static_data(self.imu_timestamps, self.imu_data)
+
+        # slider range
+        self.slider.setRange(0, len(self.video_frames)-1)
+
+        self.current_frame = 0
+        self.show_frame(0)
+
+    def show_frame(self, idx):
+        frame = self.video_frames[idx]   # H × W × 3
+
+        h, w, c = frame.shape
+        image = QImage(frame.data, w, h, 3*w, QImage.Format_BGR888)
+        pix = QPixmap.fromImage(image).scaled(
+            self.video_label.width(),
+            self.video_label.height(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        self.video_label.setPixmap(pix)
+
+        # convert absolute timestamp → relative time (second)
+        timestamp = self.video_timestamps[idx]
+        t0 = self.video_timestamps[0]
+        t_relative = (timestamp - t0) / 1e9  # ns → s
+        self.plot_widget.update_cursor(t_relative)
+
 
     def toggle_video(self):
-        if self.media_player.state() == QMediaPlayer.PlayingState:
-            self.media_player.pause()
+        if self.play_timer.isActive():
+            self.play_timer.stop()
             self.btn_play.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
         else:
-            self.media_player.play()
+            self.play_timer.start(33)  # ~30 fps
             self.btn_play.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+
+    def next_frame(self):
+        self.current_frame += 1
+        if self.current_frame >= len(self.video_frames):
+            self.current_frame = 0  # loop
+        self.slider.setValue(self.current_frame)
+        self.show_frame(self.current_frame)
+
+    def set_position(self, pos):
+        self.current_frame = pos
+        self.show_frame(pos)
 
     def on_position_changed(self, position):
         self.slider.setValue(position)
@@ -227,9 +300,6 @@ class DisplayModeTab(QWidget):
     def on_duration_changed(self, duration):
         self.slider.setRange(0, duration)
         self.duration = duration / 1000.0
-
-    def set_position(self, position):
-        self.media_player.setPosition(position)
 
 
 class RecordingModeTab(QWidget):
@@ -373,7 +443,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("IMU & Video Analysis Tool")
-        self.resize(1200, 800)
+        self.resize(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
         
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
