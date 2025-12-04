@@ -43,10 +43,14 @@ class IMUDataset(Dataset):
         T = imu.shape[0]
         target = self.target_seq_len
 
-        # Trim (center crop)
+        # # Trim (center crop)
+        # if T > target:
+        #     start = (T - target) // 2
+        #     return imu[start:start+target]
+        
+        # Trim (crop end)
         if T > target:
-            start = (T - target) // 2
-            return imu[start:start+target]
+            return imu[:target]
 
         # Pad zeros
         if T < target:
