@@ -265,10 +265,10 @@ class DisplayModeTab(QWidget):
         )
         self.video_label.setPixmap(pix)
 
-        # convert absolute timestamp → relative time (second)
+        # convert absolute timestamp → relative time
         timestamp = self.video_timestamps[idx]
         t0 = self.video_timestamps[0]
-        t_relative = (timestamp - t0) / 1e9  # ns → s
+        t_relative = (timestamp - t0)
         self.plot_widget.update_cursor(t_relative)
 
 
