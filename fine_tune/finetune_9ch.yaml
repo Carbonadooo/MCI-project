@@ -1,0 +1,53 @@
+# Fine-tuning Configuration for IMU2CLIP with 9-channel IMU data
+# Uses all 9 IMU channels: accelerometer (3) + gyroscope (3) + magnetometer (3)
+
+# Data paths (IMPORTANT: separate train and val folders)
+data:
+  train_dir: "/home/chuye/Documents/MCI-project/data/train_set"  # Training data folder
+  val_dir: "/home/chuye/Documents/MCI-project/data/validate_set"  # Validation data folder (separate!)
+  max_per_class: null  # Limit samples per class (null = all)
+  window_size: 1000  # IMU window size in samples (1000 = 5 seconds at 200Hz)
+  num_workers: 8  # DataLoader workers
+  num_channels: 9  # Number of IMU channels to use (9 = accel + gyro + mag)
+
+# Model
+model:
+  name: "MW2StackRNNPooling9Ch"  # Model architecture (MW2StackRNNPooling or MW2StackRNNPooling9Ch)
+  checkpoint: "/home/chuye/Documents/imu2clip/saved/i2c/i2c_s_i_t_t_se_mw2_w_2.5_master-epoch=01-val_loss=5.87.ckpt"
+  embedding_size: 512  # Output embedding dimension
+  
+# Training hyperparameters
+training:
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.00001  # 1e-5 (start conservative for 9-channel)
+  weight_decay: 0.001
+  temperature: 0.07  # Temperature for contrastive loss
+  early_stop_patience: 20  # Early stopping patience (0 to disable)
+  gradient_clip_norm: 1.0  # Maximum gradient norm for clipping
+  
+# Data augmentation
+augmentation:
+  # Augmentation multiplier (how many augmented versions per original sample)
+  multiplier: 50  # Training dataset will be 50x larger
+  
+  # IMU augmentation parameters
+  imu:
+    scale_min: 0.7  # Minimum scaling factor
+    scale_max: 1.3  # Maximum scaling factor
+    noise_min: 0.001  # Minimum noise factor (0.1% of signal std)
+    noise_max: 0.003  # Maximum noise factor (0.3% of signal std)
+    zero_pad_max: 0.05  # Maximum zero-padding at start/end (5%)
+  
+  # Text augmentation
+  # Uses TEXT_ALTERNATIVES dictionary (11 alternatives per class)
+  # Automatically applied during training
+
+# Output
+output:
+  dir: "./log/finetuned_models_9ch"  # Output directory for 9-channel model checkpoints
+  
+# Device
+device: "cuda"  # "cuda" or "cpu"
+
+

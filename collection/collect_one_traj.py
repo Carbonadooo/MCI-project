@@ -9,7 +9,7 @@ import os
 
 class DataCollector:
     def __init__(self, serial_port="/dev/ttyACM0", baud_rate=115200, 
-                 webcam_port=0, imu_freq=200, camera_freq=30, output_hdf5="./data/output_data.hdf5", duration=15):
+                 webcam_port=0, imu_freq=200, camera_freq=30, output_hdf5="./data/output_data.hdf5", duration=7):
         # Configuration
         self.serial_port = serial_port
         self.baud_rate = baud_rate
@@ -55,7 +55,7 @@ class DataCollector:
             # Initialize serial port
             print(f"Initializing serial port: {self.serial_port}")
             self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
-            time.sleep(2)  
+            time.sleep(1)  
             print("Serial port initialized successfully")
             
             # Initialize camera
@@ -104,53 +104,189 @@ class DataCollector:
         
         cv2.destroyAllWindows()
     
+    # def record_imu_data(self):
+    #     """Thread function to record IMU data at fixed frequency"""
+    #     print(f"IMU recording started at {self.imu_frequency} Hz...")
+        
+    #     # Open CSV file for writing
+    #     csv_file = open(self.tmp_output_csv, "w", newline="")
+    #     csv_writer = csv.writer(csv_file)
+    #     csv_writer.writerow(["timestamp","ax","ay","az","gx","gy","gz","mx","my","mz"])
+        
+    #     try:
+    #         # Use precise timing for consistent sampling
+    #         next_sample_time = time.time()
+            
+    #         while self.recording:
+    #             current_time = time.time()
+                
+    #             # Read from serial port
+    #             if self.ser.in_waiting > 0:
+    #                 line = self.ser.readline().decode('utf-8').strip()
+    #                 if line:
+    #                     parts = line.split(",")
+    #                     if len(parts) == 9:
+    #                         try:
+    #                             data = list(map(float, parts))
+                                
+    #                             with self.data_lock:
+    #                                 csv_writer.writerow([current_time] + data)
+    #                                 csv_file.flush()
+                                    
+    #                                 # Also store in memory for HDF5
+    #                                 self.imu_timestamps.append(current_time)
+    #                                 self.imu_data.append(data)
+                                    
+    #                         except ValueError:
+    #                             continue  # Skip invalid data
+                
+    #             # Wait until next sample time
+    #             next_sample_time += self.imu_interval
+    #             sleep_time = next_sample_time - time.time()
+    #             if sleep_time > 0:
+    #                 time.sleep(sleep_time)
+                    
+    #     except Exception as e:
+    #         print(f"IMU recording error: {e}")
+    #     finally:
+    #         csv_file.close()
+    #         print("IMU recording stopped")
+
+    # def record_imu_data(self):
+    #     """Thread function to record IMU data at fixed frequency"""
+    #     print(f"IMU recording started at {self.imu_frequency} Hz...")
+
+    #     # Open CSV file for writing
+    #     csv_file = open(self.tmp_output_csv, "w", newline="")
+    #     csv_writer = csv.writer(csv_file)
+    #     csv_writer.writerow(["timestamp","ax","ay","az","gx","gy","gz","mx","my","mz"])
+
+    #     try:
+    #         next_sample_time = time.time()
+
+    #         while self.recording:
+    #             current_time = time.time()
+
+    #             # Blocking read with timeout (set in Serial(..., timeout=1))
+    #             try:
+    #                 raw = self.ser.readline()
+    #             except Exception as e:
+    #                 # If something goes wrong with the serial port, just skip this iteration
+    #                 # and keep loop alive
+    #                 # print(f"Serial read error: {e}")
+    #                 continue
+
+    #             if not raw:
+    #                 # nothing received this iteration, go to sleep logic
+    #                 pass
+    #             else:
+    #                 line = raw.decode('utf-8', errors='ignore').strip()
+    #                 if line:
+    #                     parts = line.split(",")
+    #                     if len(parts) == 9:
+    #                         try:
+    #                             data = list(map(float, parts))
+    #                             with self.data_lock:
+    #                                 csv_writer.writerow([current_time] + data)
+    #                                 csv_file.flush()
+
+    #                                 self.imu_timestamps.append(current_time)
+    #                                 self.imu_data.append(data)
+
+    #                         except ValueError:
+    #                             # bad line, skip
+    #                             # print(f"Bad IMU line: {line}")
+    #                             pass
+    #                     else:
+    #                         # print(f"Malformed IMU line (len={len(parts)}): {line}")
+    #                         pass
+
+    #             # Timing control for ~imu_frequency Hz
+    #             next_sample_time += self.imu_interval
+    #             sleep_time = next_sample_time - time.time()
+    #             if sleep_time > 0:
+    #                 time.sleep(sleep_time)
+
+    #     except Exception as e:
+    #         print(f"IMU recording error: {e}")
+    #     finally:
+    #         csv_file.close()
+    #         print("IMU recording stopped")
+
+
     def record_imu_data(self):
         """Thread function to record IMU data at fixed frequency"""
         print(f"IMU recording started at {self.imu_frequency} Hz...")
-        
+
         # Open CSV file for writing
         csv_file = open(self.tmp_output_csv, "w", newline="")
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow(["timestamp","ax","ay","az","gx","gy","gz","mx","my","mz"])
-        
+
+        # for debugging: how many lines we've printed
+        debug_max_print = 30
+        debug_count = 0
+
         try:
-            # Use precise timing for consistent sampling
             next_sample_time = time.time()
-            
+
             while self.recording:
-                current_time = time.time()
-                
-                # Read from serial port
-                if self.ser.in_waiting > 0:
-                    line = self.ser.readline().decode('utf-8').strip()
+                # blocking read with timeout (timeout is set in Serial(..., timeout=1))
+                try:
+                    raw = self.ser.readline()
+                except Exception as e:
+                    print(f"[IMU] Serial read exception: {e}")
+                    continue
+
+                if raw:
+                    line = raw.decode('utf-8', errors='ignore').strip()
+
+                    # DEBUG: show what we actually receive
+                    if debug_count < debug_max_print:
+                        print(f"[IMU RAW] {repr(line)}")
+                        debug_count += 1
+
                     if line:
                         parts = line.split(",")
                         if len(parts) == 9:
                             try:
                                 data = list(map(float, parts))
-                                
+                                now = time.time()
                                 with self.data_lock:
-                                    csv_writer.writerow([current_time] + data)
+                                    csv_writer.writerow([now] + data)
                                     csv_file.flush()
-                                    
-                                    # Also store in memory for HDF5
-                                    self.imu_timestamps.append(current_time)
+
+                                    self.imu_timestamps.append(now)
                                     self.imu_data.append(data)
-                                    
                             except ValueError:
-                                continue  # Skip invalid data
-                
-                # Wait until next sample time
+                                # debug: show bad numeric conversion
+                                if debug_count < debug_max_print:
+                                    print(f"[IMU PARSE ERROR] cannot convert to float: {parts}")
+                                    debug_count += 1
+                        else:
+                            # debug: wrong number of comma-separated fields
+                            if debug_count < debug_max_print:
+                                print(f"[IMU BAD FORMAT] {line} (fields={len(parts)})")
+                                debug_count += 1
+                else:
+                    # no data this cycle; you can uncomment next line if needed
+                    # if debug_count < debug_max_print:
+                    #     print("[IMU] Empty read")
+                    #     debug_count += 1
+                    pass
+
+                # timing control for ~imu_frequency Hz
                 next_sample_time += self.imu_interval
                 sleep_time = next_sample_time - time.time()
                 if sleep_time > 0:
                     time.sleep(sleep_time)
-                    
+
         except Exception as e:
             print(f"IMU recording error: {e}")
         finally:
             csv_file.close()
             print("IMU recording stopped")
+
 
     def record_video(self):
         print(f"Video recording started at {self.camera_frequency} FPS...")
@@ -256,7 +392,8 @@ class DataCollector:
     
     def start_recording(self, duration=None):
         """Start recording for specified duration"""
-        print(f"Starting dual recording (IMU + Video) for {duration} seconds...")
+        record_duration = duration if duration is not None else self.duration
+        print(f"Starting dual recording (IMU + Video) for {record_duration} seconds...")
         print("Recording will automatically stop after the specified duration")
         print("Press Ctrl+C to stop recording early if needed")
         
@@ -283,14 +420,14 @@ class DataCollector:
                 elapsed_time = current_time - self.start_time
                 
                 # Check if duration has passed
-                if elapsed_time >= self.duration:
-                    print(f"\n{self.duration} seconds elapsed. Stopping recording...")
+                if elapsed_time >= record_duration:
+                    print(f"\n{record_duration} seconds elapsed. Stopping recording...")
                     self.recording = False
                     break
                 
                 # Show progress every 1 second
                 if int(elapsed_time) % 1 == 0 and elapsed_time > 0:
-                    remaining = self.duration - elapsed_time
+                    remaining = record_duration - elapsed_time
                     print(f"Recording... {elapsed_time:.1f}s elapsed, {remaining:.1f}s remaining")
                 
                 time.sleep(0.1)

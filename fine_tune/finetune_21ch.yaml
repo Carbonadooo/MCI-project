@@ -1,0 +1,55 @@
+# Fine-tuning Configuration for IMU2CLIP with 21-channel input
+# Uses 9 IMU channels + 9 rotation matrix features + 3 world-frame linear acceleration
+# Channels: [accel_xyz, gyro_xyz, mag_xyz, R11-R33, world_accel_xyz]
+
+# Data paths (IMPORTANT: separate train and val folders)
+data:
+  train_dir: "/home/chuye/Documents/MCI-project/data/train_set"  # Training data folder
+  val_dir: "/home/chuye/Documents/MCI-project/data/validate_set"  # Validation data folder (separate!)
+  max_per_class: null  # Limit samples per class (null = all)
+  window_size: 1000  # IMU window size in samples (1000 = 5 seconds at 200Hz)
+  num_workers: 12  # DataLoader workers
+  num_channels: 21  # Number of channels: 9 IMU + 9 rotation + 3 world-frame accel
+
+# Model
+model:
+  name: "MW2StackRNNPooling21Ch"  # Model architecture for 21-channel input
+  checkpoint: "/home/chuye/Documents/imu2clip/saved/i2c/i2c_s_i_t_t_se_mw2_w_2.5_master-epoch=01-val_loss=5.87.ckpt"
+  embedding_size: 512  # Output embedding dimension
+  
+# Training hyperparameters
+training:
+  epochs: 20
+  batch_size: 32
+  learning_rate: 0.002  # 1e-5 (conservative for new features)
+  weight_decay: 0.00000001
+  temperature: 0.07  # Temperature for contrastive loss
+  early_stop_patience: 10  # Early stopping patience (0 to disable)
+  gradient_clip_norm: 1.0  # Maximum gradient norm for clipping
+  
+# Data augmentation
+augmentation:
+  # Augmentation multiplier (how many augmented versions per original sample)
+  multiplier: 150  # 50
+  
+  # IMU augmentation parameters
+  # Note: Augmentation is applied BEFORE rotation feature and world-frame accel computation
+  imu:
+    scale_min: 0.8  # Minimum scaling factor
+    scale_max: 1.2  # Maximum scaling factor
+    noise_min: 0.001  # Minimum noise factor (0.1% of signal std)
+    noise_max: 0.003  # Maximum noise factor (0.3% of signal std)
+    zero_pad_max: 0.005  # Maximum zero-padding at start/end (0.5%)
+  
+  # Text augmentation
+  # Uses TEXT_ALTERNATIVES dictionary (11 alternatives per class)
+  # Automatically applied during training
+
+# Output
+output:
+  dir: "./log/finetuned_models_21ch"  # Output directory for 21-channel model checkpoints
+  
+# Device
+device: "cuda"  # "cuda" or "cpu"
+
+

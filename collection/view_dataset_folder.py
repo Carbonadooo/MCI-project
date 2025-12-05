@@ -3,7 +3,7 @@ from pathlib import Path
 from datetime import datetime
 import h5py
 
-DATASET_PATH = Path(__file__).parent.parent / "data"
+DATASET_PATH = "/Users/jianuoqiu/Documents/GT/CS8803/MCI-project/data/all"
 
 def get_file_size_mb(file_path):
     """Get file size in MB"""
