@@ -14,8 +14,8 @@ PROJECT_ROOT = CURRENT_DIR.parent  # now a Path object
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-MODEL_CKPT = "/Users/jianuoqiu/Documents/GT/CS8803/MCI-project/models/best_model.ckpt"
-DB_ROOT = PROJECT_ROOT / "data" / "validate_set"   # where all hdf5 live
+MODEL_CKPT = "/Users/jianuoqiu/Documents/GT/CS8803/MCI-project/models/best_ever/best_model.ckpt"
+DB_ROOT = PROJECT_ROOT / "data" / "all"   # where all hdf5 live
 
 from inference_utils.inference_imu2clip import IMU2CLIPInference
 from inference_utils.inference_hdf5 import load_hdf5_imu, encode_with_windows
@@ -832,7 +832,7 @@ class QueryModeTab(QWidget):
         row_params.addWidget(QLabel("Top K"))
         self.spin_topk = QSpinBox()
         self.spin_topk.setRange(1, 100)
-        self.spin_topk.setValue(10)
+        self.spin_topk.setValue(20)
         row_params.addWidget(self.spin_topk)
         settings_layout.addLayout(row_params)
 
@@ -865,9 +865,9 @@ class QueryModeTab(QWidget):
         self.video_label.setMinimumSize(640, 480)
         right_layout.addWidget(self.video_label)
 
-        # plot
-        self.plot_widget = IMUPlotWidget()
-        right_layout.addWidget(self.plot_widget)
+        # [Removed] IMU plot in Query Mode
+        # self.plot_widget = IMUPlotWidget()
+        # right_layout.addWidget(self.plot_widget)
 
         main_layout.addWidget(right_widget, 2)
 
@@ -972,13 +972,23 @@ class QueryModeTab(QWidget):
                 if Path(path).resolve() == query_path_abs:
                     continue
 
-                data_db = load_hdf5_imu(str(path), verbose=False, resample_to_200hz=True, num_channels=load_channels)
-                db_emb = encode_with_windows(self.infer, data_db['imu_data'])
+                # Try to load cached embedding sidecar
+                sidecar = Path(str(path) + ".imu2clip.npy")
+                if sidecar.exists():
+                    db_emb = np.load(sidecar)
+                else:
+                    data_db = load_hdf5_imu(str(path), verbose=False, resample_to_200hz=True, num_channels=load_channels)
+                    db_emb = encode_with_windows(self.infer, data_db['imu_data'])
+
+                # Normalize
                 db_emb = db_emb / (np.linalg.norm(db_emb) + 1e-8)
 
                 # cosine similarity (dot product of normalized embeddings)
                 sim = float(np.dot(query_emb, db_emb))
-                matches.append((sim, path))
+                # DEBUG: print per-file similarity
+                print(f"[DEBUG] {Path(path).name} sim={sim:.3f} (cached={'Y' if sidecar.exists() else 'N'})")
+                if np.isfinite(sim):
+                    matches.append((sim, path))
             except Exception as e:
                 print(f"[WARN] Failed on {path}: {e}")
                 continue
@@ -991,6 +1001,11 @@ class QueryModeTab(QWidget):
         # 3. sort and show top-k
         matches.sort(key=lambda x: x[0], reverse=True)
         top = matches[:top_k]
+
+        # DEBUG: print top-k after sorting
+        print("[DEBUG] Top-K after sorting:")
+        for rank, (sim, path) in enumerate(top, start=1):
+            print(f"  {rank}. {Path(path).name} (sim={sim:.3f})")
 
         self.result_list.clear()
         for rank, (sim, path) in enumerate(top, start=1):
@@ -1017,7 +1032,7 @@ class QueryModeTab(QWidget):
             return
 
         # update plot
-        self.plot_widget.plot_static_data(imu_t, imu_data)
+        # self.plot_widget.plot_static_data(imu_t, imu_data)
 
         # store video
         self.video_frames = video_frames
@@ -1027,6 +1042,8 @@ class QueryModeTab(QWidget):
         if self.play_timer.isActive():
             self.play_timer.stop()
         self.show_frame(0)
+        # Auto-start playback so video and plot cursor advance
+        self.play_timer.start(33)
 
     def show_frame(self, idx):
         if self.video_frames is None or len(self.video_frames) == 0:
@@ -1045,10 +1062,10 @@ class QueryModeTab(QWidget):
         )
         self.video_label.setPixmap(pix)
 
-        # move cursor on IMU plot according to video timestamp
-        t0 = self.video_timestamps[0]
-        t_rel = self.video_timestamps[idx] - t0
-        self.plot_widget.update_cursor(t_rel)
+        # [Removed] IMU cursor update in Query Mode
+        # t0 = self.video_timestamps[0]
+        # t_rel = self.video_timestamps[idx] - t0
+        # self.plot_widget.update_cursor(t_rel)
 
     def next_frame(self):
         if self.video_frames is None:
