@@ -698,10 +698,29 @@ class RecordingModeTab(QWidget):
                     if self.record_finished_callback:
                         self.record_finished_callback(res[1])
                     QMessageBox.information(self, "Recording Saved", f"HDF5: {res[1]}\nCSV: {res[2]}\nMP4: {res[3]}")
+                    # After recording completes, compute embedding and warn if NaN/Inf
+                    try:
+                        infer = IMU2CLIPInference(
+                            checkpoint_path=MODEL_CKPT,
+                            device="cpu",
+                            model_name="MW2StackRNNPooling21Ch",
+                            num_channels=21,
+                        )
+                        data = load_hdf5_imu(res[1], verbose=False, resample_to_200hz=True, num_channels=9)
+                        emb = encode_with_windows(infer, data['imu_data'])
+                        if not np.isfinite(emb).all():
+                            QMessageBox.warning(
+                                self,
+                                "Embedding Check",
+                                f"Computed embedding contains NaN/Inf for {os.path.basename(res[1])}. Please re-record or check sensors."
+                            )
+                    except Exception as e:
+                        print(f"[WARN] Embedding check failed: {e}")
+                        QMessageBox.warning(self, "Embedding Check", f"Failed to compute embedding for {os.path.basename(res[1])}: {e}")
                 elif res[0] == "failed":
-                    QMessageBox.warning(self, "Recording Failed", "Recording failed.")
+                    QMessageBox.critical(self, "Recording Failed", "An error occurred during recording.")
                 elif res[0] == "error":
-                    QMessageBox.critical(self, "Error", res[1])
+                    QMessageBox.critical(self, "Recording Error", res[1])
 
 
 # class QueryModeTab(QWidget):
