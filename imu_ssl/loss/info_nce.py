@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-def info_nce(z1, z2, temperature=0.1):
+def info_nce(z1, z2, temperature=0.1, neg_weight=1.0):
     batch_size = z1.shape[0]
 
     z1 = F.normalize(z1, dim=1)
@@ -14,6 +14,8 @@ def info_nce(z1, z2, temperature=0.1):
     neg = z1 @ z2.T  # (B, B)
     mask = torch.eye(batch_size, device=z1.device).bool()
     neg = neg.masked_fill(mask, -9e15) / temperature
+
+    neg = neg * neg_weight
 
     logits = torch.cat([pos.unsqueeze(1), neg], dim=1) # (B, 1+B)
 

@@ -15,6 +15,7 @@ file_list = [
     f"{DATAPATH}/train_set/pour_water_into_cup/pour_water_into_cup_20251108_210416.hdf5",
     # f"{DATAPATH}/train_set/clap_once/clap_once_20251108_200621.hdf5",
 ]
+
 # ---------------------
 # Define augmentation pipeline
 # ---------------------
@@ -34,7 +35,7 @@ dataloader = build_dataloader(
     batch_size=1,              # 用 batch=1 方便可视化
     target_seq_len=1000,
     imu_normalizer=None,
-    augment=aug
+    augment=None
 )
 
 # ---------------------
@@ -50,50 +51,37 @@ for batch in dataloader:
 print(f"Loaded IMU data shapes: {imu.shape}, {imu_aug.shape}")
 
 # ---------------------
-# 3x2 subplots setup (3 sensor types × 2 views)
+# 3 subplots setup (1 for each sensor type)
 # ---------------------
 sensor_names = ["Accelerometer", "Gyroscope", "Magnetometer"]
 axis_labels = ["x", "y", "z"]
 
 # y-axis range for each sensor type
-acc_range = (
-    min(imu[:,0:3].min(), imu_aug[:,0:3].min()),
-    max(imu[:,0:3].max(), imu_aug[:,0:3].max()),
-)
-gyro_range = (
-    min(imu[:,3:6].min(), imu_aug[:,3:6].min()),
-    max(imu[:,3:6].max(), imu_aug[:,3:6].max()),
-)
-mag_range = (
-    min(imu[:,6:9].min(), imu_aug[:,6:9].min()),
-    max(imu[:,6:9].max(), imu_aug[:,6:9].max()),
-)
+acc_range = (imu[:,0:3].min(), imu[:,0:3].max())
+gyro_range = (imu[:,3:6].min(), imu[:,3:6].max())
+mag_range = (imu[:,6:9].min(), imu[:,6:9].max())
 
 ranges = [acc_range, gyro_range, mag_range]
 
-fig, axes = plt.subplots(3, 2, figsize=(14, 10))
+fig, axes = plt.subplots(3, 1, figsize=(12, 10))
 
 for sensor_idx in range(3):  # 3 sensor types
-    for view_idx in range(2):  # 2 views
-        ax = axes[sensor_idx, view_idx]
-        
-        # Select data: view 1 or view 2
-        data = imu if view_idx == 0 else imu_aug
-        view_name = "View 1" if view_idx == 0 else "View 2"
-        
-        # Plot 3 axes for this sensor type
-        start_col = sensor_idx * 3
-        for axis_idx in range(3):
-            ax.plot(data[:, start_col + axis_idx], 
-                   label=f"{axis_labels[axis_idx]}-axis", 
-                   linewidth=1)
-        
-        ax.set_title(f"{sensor_names[sensor_idx]} - {view_name}", fontsize=10)
-        ax.set_ylim(ranges[sensor_idx])
-        ax.legend()
-        
-        if sensor_idx == 2:  # Bottom row
-            ax.set_xlabel("Time steps")
+    ax = axes[sensor_idx]
+    
+    # Plot 3 axes for this sensor type
+    start_col = sensor_idx * 3
+    for axis_idx in range(3):
+        # Plot only view 1 for each axis
+        ax.plot(imu[:, start_col + axis_idx], 
+               label=f"{axis_labels[axis_idx]}", 
+               linewidth=1)
+    
+    ax.set_title(f"{sensor_names[sensor_idx]}", fontsize=12)
+    ax.set_ylim(ranges[sensor_idx])
+    ax.legend()
+    
+    if sensor_idx == 2:  # Bottom subplot
+        ax.set_xlabel("Time steps")
 
 plt.tight_layout()
 plt.show()

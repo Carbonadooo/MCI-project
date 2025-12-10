@@ -9,11 +9,11 @@ class SimCLRInference:
     Load a trained SimCLR model and extract encoder-only embeddings.
     """
 
-    def __init__(self, checkpoint_path, device="cuda"):
+    def __init__(self, input_ch, checkpoint_path, device="cuda"):
         self.device = device
 
         # 1. Build encoder + SimCLR model
-        encoder = TCNEncoder(input_ch=9)
+        encoder = TCNEncoder(input_ch=input_ch)
         model = SimCLR(encoder)   # contains encoder + projector
 
         # 2. Load weights
